@@ -21,7 +21,7 @@ from vlmrm.contrib.sb3.base import get_clip_rewarded_rl_algorithm_class
 from vlmrm.contrib.sb3.callbacks import VideoRecorderCallback, WandbCallback
 from vlmrm.contrib.sb3.make_vec_env import make_vec_env
 from vlmrm.contrib.sb3.signal_handler import end_signal_handler
-from vlmrm.contrib.sb3.subproc_vec_env import SubprocVecEnv
+from vlmrm.contrib.sb3.subproc_vec_env import SubprocVecEnv, DummyVecEnv
 from vlmrm.envs.base import get_clip_rewarded_env_name, get_make_env, is_3d_env
 from vlmrm.reward_model import dist_worker_compute_reward, load_reward_model_from_config
 from vlmrm.trainer.config import CLIPRewardConfig, Config
@@ -30,9 +30,7 @@ signal.signal(signal.SIGINT, end_signal_handler)
 signal.signal(signal.SIGTERM, end_signal_handler)
 
 
-def showwarning_with_traceback(
-    message, category, filename, lineno, file=None, line=None
-):
+def showwarning_with_traceback(message, category, filename, lineno, file=None, line=None):
     """Show warning with full traceback."""
     log = file if hasattr(file, "write") else sys.stderr
     log.write(warnings.formatwarning(message, category, filename, lineno, line))
@@ -71,7 +69,7 @@ def primary_worker(
         make_env_fn,
         n_envs=config.rl.n_envs,
         seed=config.seed,
-        vec_env_cls=SubprocVecEnv,
+        vec_env_cls=DummyVecEnv if config.rl.n_envs == 1 else SubprocVecEnv,
         use_gpu_ids=config.rl.device_ids,
         vec_env_kwargs=dict(render_dim=config.render_dim),
     )
@@ -124,11 +122,7 @@ def primary_worker(
     model = algo.learn(
         total_timesteps=config.rl.n_steps,
         callback=callback,
-        **(
-            dict(log_interval=config.logging.tensorboard_freq // config.rl.n_envs)
-            if config.logging.tensorboard_freq
-            else dict()
-        ),
+        **(dict(log_interval=config.logging.tensorboard_freq // config.rl.n_envs) if config.logging.tensorboard_freq else dict()),
     )
 
     if stop_event is not None:
@@ -225,3 +219,21 @@ def clip_inference_worker(rank: int, config: Config, stop_event: multiprocessing
             worker_frames_tensor=worker_frames_tensor,
         )
     logger.info(f"[Worker {rank}] Received stop event. Exiting worker")
+
+
+if __name__ == "__main__":
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, help="Path to config.yaml file", default="config.yaml")
+    args = parser.parse_args()
+
+    yaml_file = args.config
+    if not yaml_file.exists():
+        raise FileNotFoundError(f"Config file {yaml_file} not found. Please pass a valid path to a config file with the --config flag.")
+
+    with open(yaml_file, "r") as f:
+        config = f.read()
+
+    train(config)
