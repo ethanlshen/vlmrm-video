@@ -18,3 +18,13 @@ gymnasium.register(
     get_clip_rewarded_env_name("Humanoid-v4"),
     "vlmrm.envs.mujoco.clip_rewarded_humanoid:CLIPRewardedHumanoidEnv",
 )
+
+gymnasium.register(
+    "vlmrm/DeflectSpheres",
+    "sofa_env.scenes.deflect_spheres.deflect_spheres_env:DeflectSpheresEnv",
+)
+
+gymnasium.register(
+    "vlmrm/CLIPRewardedDeflectSpheres",
+    "vlmrm.envs.sofa_env.clip_rewarded_deflect_spheres:CLIPRewardedDeflectSpheresEnv",
+)

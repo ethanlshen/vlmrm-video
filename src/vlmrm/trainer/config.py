@@ -14,7 +14,7 @@ from vlmrm.envs.base import RENDER_DIM
 
 
 class Config(BaseModel):
-    env_name: Literal["CartPole-v1", "Humanoid-v4", "MountainCarContinuous-v0"]
+    env_name: Literal["CartPole-v1", "Humanoid-v4", "MountainCarContinuous-v0", "DeflectSpheres"]
     base_path: pathlib.Path
     seed: int
     description: str
@@ -29,9 +29,7 @@ class Config(BaseModel):
 
     def save(self) -> None:
         with open(self.dump_path, "w") as f:
-            json.dump(
-                self.model_dump(), f, indent=2, cls=util.PathlibCompatibleJSONEncoder
-            )
+            json.dump(self.model_dump(), f, indent=2, cls=util.PathlibCompatibleJSONEncoder)
 
     @computed_field
     @property
@@ -86,61 +84,30 @@ class Config(BaseModel):
     @model_validator(mode="after")
     def check_model(self) -> "Config":
         if self.logging.checkpoint_freq % self.rl.train_freq != 0:
-            raise ValueError(
-                f"({self.logging.checkpoint_freq=}) must be divisible by "
-                f"({self.rl.train_freq=}). Otherwise duplicated checkpoints "
-                "are created."
-            )
+            raise ValueError(f"({self.logging.checkpoint_freq=}) must be divisible by " f"({self.rl.train_freq=}). Otherwise duplicated checkpoints " "are created.")
         if self.logging.video_freq % self.rl.n_envs != 0:
-            raise ValueError(
-                f"({self.logging.video_freq=}) must be divisible by "
-                f"({self.rl.n_envs=})"
-            )
+            raise ValueError(f"({self.logging.video_freq=}) must be divisible by " f"({self.rl.n_envs=})")
         if self.logging.checkpoint_freq % self.rl.n_envs != 0:
-            raise ValueError(
-                f"({self.logging.checkpoint_freq=}) must be divisible by "
-                f"({self.rl.n_envs=})"
-            )
+            raise ValueError(f"({self.logging.checkpoint_freq=}) must be divisible by " f"({self.rl.n_envs=})")
 
         if self.is_clip_rewarded:
             assert isinstance(self.reward, CLIPRewardConfig)
             if self.logging.tensorboard_freq is not None:
-                raise ValueError(
-                    "When doing CLIP-rewarded training, a tensorboard logging "
-                    "frequency does not need to be specified."
-                )
+                raise ValueError("When doing CLIP-rewarded training, a tensorboard logging " "frequency does not need to be specified.")
             if len(self.reward.target_prompts) != len(self.reward.baseline_prompts):
-                raise ValueError(
-                    f"({self.reward.target_prompts=}) and "
-                    f"({self.reward.baseline_prompts=}) must have the same length."
-                )
+                raise ValueError(f"({self.reward.target_prompts=}) and " f"({self.reward.baseline_prompts=}) must have the same length.")
 
             if len(self.reward.target_prompts) == 0:
                 raise ValueError(f"({self.reward.target_prompts=}) must not be empty.")
             if self.rl.train_freq % self.rl.episode_length != 0:
-                raise ValueError(
-                    f"({self.rl.train_freq=}) must be divisible by "
-                    f"({self.rl.episode_length=}), so that training happens after "
-                    "full episodes are completed."
-                )
+                raise ValueError(f"({self.rl.train_freq=}) must be divisible by " f"({self.rl.episode_length=}), so that training happens after " "full episodes are completed.")
             if self.reward.batch_size % self.rl.n_workers != 0:
-                raise ValueError(
-                    f"({self.reward.batch_size=}) corresponds to the total size of the "
-                    " batch do be distributed among workers and therefore must be "
-                    f"divisible by ({self.rl.n_workers=})"
-                )
+                raise ValueError(f"({self.reward.batch_size=}) corresponds to the total size of the " " batch do be distributed among workers and therefore must be " f"divisible by ({self.rl.n_workers=})")
             if self.rl.n_envs * self.rl.episode_length % self.reward.batch_size != 0:
-                raise ValueError(
-                    f"({self.rl.n_envs=}) * ({self.rl.episode_length=}) must be "
-                    f"divisible by ({self.reward.batch_size=}) so that all batches"
-                    "are of the same size."
-                )
+                raise ValueError(f"({self.rl.n_envs=}) * ({self.rl.episode_length=}) must be " f"divisible by ({self.reward.batch_size=}) so that all batches" "are of the same size.")
         else:
             if self.logging.tensorboard_freq is None:
-                raise ValueError(
-                    "You must specify a tensorboard logging frequency when"
-                    " training on ground-truth rewards."
-                )
+                raise ValueError("You must specify a tensorboard logging frequency when" " training on ground-truth rewards.")
         return self
 
 
@@ -180,16 +147,10 @@ class CLIPRewardConfig(BaseModel):
         try:
             name, tag = v.split("/")
         except ValueError:
-            raise ValueError(
-                f"({v=}) is not a valid model name. "
-                "It must be in the form of `name/tag`."
-            )
+            raise ValueError(f"({v=}) is not a valid model name. " "It must be in the form of `name/tag`.")
         tags = open_clip.list_pretrained_tags_by_model(name)
         if tag not in tags:
-            raise ValueError(
-                f"({v=}) is not a valid model name. "
-                f"Available tags for {name} are {tags}."
-            )
+            raise ValueError(f"({v=}) is not a valid model name. " f"Available tags for {name} are {tags}.")
         return v
 
 
@@ -202,9 +163,7 @@ class RLConfig(BaseModel):
     train_freq: int
     batch_size: int
     gradient_steps: int
-    action_noise: Optional[
-        Union[NormalActionNoiseConfig, OrnsteinUhlenbeckActionNoiseConfig]
-    ] = None
+    action_noise: Optional[Union[NormalActionNoiseConfig, OrnsteinUhlenbeckActionNoiseConfig]] = None
     tau: float = 0.005
     gamma: float = 0.99
     learning_rate: float = 3e-4
@@ -236,10 +195,7 @@ class RLConfig(BaseModel):
     @model_validator(mode="after")
     def check_model(self) -> "RLConfig":
         if self.train_freq > self.n_steps:
-            raise ValueError(
-                f"({self.train_freq=}) cannot be greater than "
-                f"({self.n_steps=}), or no training would be performed."
-            )
+            raise ValueError(f"({self.train_freq=}) cannot be greater than " f"({self.n_steps=}), or no training would be performed.")
         return self
 
 
