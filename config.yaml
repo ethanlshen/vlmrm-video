@@ -1,13 +1,13 @@
 base_path: data/runs/training
-description: Deflect Spheres
-env_name: DeflectSpheres
+description: Mountain Car
+env_name: MountainCarContinuous-v0
 logging:
   checkpoint_freq: 128000
   video_freq: 128000
 reward:
   alpha: 0.0
   baseline_prompts:
-  - a board with spheres and a surgical instrument
+  - a car in the mountain
   batch_size: 250
   # batch_size: 80
   cache_dir: data/cache
@@ -23,18 +23,18 @@ reward:
   name: clip
   pretrained_model: ViT-bigG-14/laion2b_s39b_b160k
   target_prompts:
-  - touching the blue sphere with the blue surgical instrument
+  - a car at the peak of the mountain, next to the yellow flag
 rl:
   batch_size: 256
   episode_length: 500
-  gamma: 0.95
+  gamma: 0.9999
   gradient_steps: 100
-  learning_rate: 0.0006
+  learning_rate: 0.0001
   learning_starts: 50000
   n_envs_per_worker: 8
-  n_steps: 10000000
+  n_steps: 10000
   policy_name: MlpPolicy
-  tau: 0.005
+  tau: 0.01
   train_freq: 500
 seed: 42
 tags:

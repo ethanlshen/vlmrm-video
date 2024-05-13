@@ -47,3 +47,6 @@ def image_transform(
             normalize,
         ]
     )
+
+def video_transform():
+    pass

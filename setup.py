@@ -17,7 +17,7 @@ setup(
         "loguru==0.7.0",
         "matplotlib==3.7.2",
         "moviepy==1.0.3",
-        "numpy==1.24.4",
+        "numpy==1.26.4",
         "open_clip_torch==2.20.0",
         "opencv-contrib-python==4.8.0.76",
         "pandas==2.0.3",

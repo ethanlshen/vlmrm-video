@@ -1,34 +1,53 @@
 from typing import List, Optional, Tuple, overload
 
-import open_clip
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 
-from vlmrm.contrib.open_clip.transform import image_transform
+from torchvision.models.video.s3d import S3D_Weights
+from vlmrm.contrib.open_clip.transform import video_transform
 from vlmrm.trainer.config import CLIPRewardConfig
 
+from mmpt.models import MMPTModel
+
+MMPT_PATH = "/home/ethans/classes/rl/project/fairseq/examples/MMPT"
 
 class CLIPEmbed(nn.Module):
-    def __init__(self, clip_model):
+    def __init__(self, clip_model, video_encoder):
         super().__init__()
         self.clip_model = clip_model
-        if isinstance(clip_model.visual.image_size, int):
-            image_size = clip_model.visual.image_size
-        else:
-            image_size = clip_model.visual.image_size[0]
-        self.transform = image_transform(image_size)
+        self.video_encoder = video_encoder
+        self.transform = S3D_Weights.KINETICS400_V1.transforms
 
     @torch.inference_mode()
-    def forward(self, x):
+    def forward(self, x, caps, cmasks):
         if x.shape[1] != 3:
             x = x.permute(0, 3, 1, 2)
 
         with torch.no_grad(), torch.autocast("cuda", enabled=torch.cuda.is_available()):
-            x = self.transform(x)
-            x = self.clip_model.encode_image(x, normalize=True)
+            x = self.transform(x) # Normalize video
+            vfeats, vmasks = self.process_video(x)
+            x = self.clip_model.forward_video(vfeats, vmasks, caps, cmasks) # Encode
         return x
 
+    def process_video(self, video_frames):
+        bsz = video_frames.size(0)
+        assert bsz == 1, "only bsz=1 is supported now."
+        seq_len = video_frames.size(1)
+        video_frames = video_frames.view(-1, *video_frames.size()[2:])
+        vfeats = self.video_encoder(video_frames.permute(0, 4, 1, 2, 3))
+        vfeats = vfeats['video_embedding']
+        vfeats = vfeats.view(bsz, seq_len, vfeats.size(-1))
+        padding = torch.zeros(
+            bsz, self.max_video_len - seq_len, vfeats.size(-1))
+        vfeats = torch.cat([vfeats, padding], dim=1)
+        vmasks = torch.cat([
+            torch.ones((bsz, seq_len), dtype=torch.bool),
+            torch.zeros((bsz, self.max_video_len - seq_len), dtype=torch.bool)
+            ],
+            dim=1
+        )
+        return vfeats, vmasks
 
 class CLIPReward(nn.Module):
     def __init__(
@@ -59,8 +78,11 @@ class CLIPReward(nn.Module):
         """
         super().__init__()
         self.embed_module = model
-        target = self.embed_prompts(target_prompts).mean(dim=0, keepdim=True)
-        baseline = self.embed_prompts(baseline_prompts).mean(dim=0, keepdim=True)
+        # Embed text. We unpackage prompt to access caps and cmasks.
+        self.target_prompts = target_prompts
+        self.baseline_prompts = baseline_prompts
+        target = self.embed_prompts(*target_prompts).mean(dim=0, keepdim=True)
+        baseline = self.embed_prompts(*baseline_prompts).mean(dim=0, keepdim=True)        
         direction = target - baseline
         # Register them as buffers so they are automatically moved around.
         self.register_buffer("target", target)
@@ -68,7 +90,7 @@ class CLIPReward(nn.Module):
         self.register_buffer("direction", direction)
 
         self.alpha = alpha
-        projection = self.compute_projection(alpha)
+        projection = self.compute_projection(alpha) # Projection
         self.register_buffer("projection", projection)
     
     def compute_projection(self, alpha: float) -> torch.Tensor:
@@ -90,34 +112,42 @@ class CLIPReward(nn.Module):
     @staticmethod
     def tokenize_prompts(x: List[str]) -> torch.Tensor:
         """Tokenize a list of prompts."""
-        return open_clip.tokenize(x)
+        # Tokenizer
+        pass
 
-    def embed_prompts(self, x) -> torch.Tensor:
+    def embed_prompts(self, caps, cmasks) -> torch.Tensor:
         """Embed a list of prompts."""
         with torch.no_grad():
-            x = self.embed_module.clip_model.encode_text(x).float()
+            x = self.embed_module.clip_model.forward_text(caps, cmasks).float()
         x = x / x.norm(dim=-1, keepdim=True)
         return x
 
-    def embed_images(self, x):
+    def embed_video(self, x):
         return self.embed_module.forward(x)
 
 
 def load_reward_model(
     model_name, target_prompts, baseline_prompts, alpha, cache_dir: Optional[str] = None
 ):
-    model_name_prefix, pretrained = model_name.split("/")
-    model = open_clip.create_model(
-        model_name=model_name_prefix, pretrained=pretrained, cache_dir=cache_dir
+    config_path = f"{MMPT_PATH}/projects/retri/videoclip.yaml"
+    print("config start " + config_path)
+    mmpt, tokenizer, aligner = MMPTModel.from_pretrained(config=config_path,
+                                                          checkpoint=f"{MMPT_PATH}/runs/retri/videoclip/checkpoint_best.pt")
+    # Aligner
+    target_ctext = aligner._build_text_seq(
+        tokenizer(target_prompts, add_special_tokens=False)["input_ids"]
     )
-    target_prompts = CLIPReward.tokenize_prompts(target_prompts)
-    baseline_prompts = CLIPReward.tokenize_prompts(baseline_prompts)
-    model = CLIPEmbed(model)
+    baseline_ctext = aligner._build_text_seq(
+        tokenizer(baseline_prompts, add_special_tokens=False)["input_ids"]
+    )
+    # MMPT.model is actual model with text, video encoding. We pass that into CLIPEmbed
+    # as clip_model.
+    model = CLIPEmbed(mmpt.model, mmpt.video_encoder)
     model = CLIPReward(
         model=model,
         alpha=alpha,
-        target_prompts=target_prompts,
-        baseline_prompts=baseline_prompts,
+        target_prompts=target_ctext,
+        baseline_prompts=baseline_ctext,
     )
     return model.eval()
 
@@ -143,7 +173,6 @@ def compute_rewards(
     assert batch_size % num_workers == 0
     n_samples = len(frames)
     rewards = torch.zeros(n_samples, device=torch.device("cpu"))
-    print(frames.shape)
     model = model.eval()
     with torch.no_grad():
         for i in range(0, n_samples, batch_size):
