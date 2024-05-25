@@ -47,6 +47,7 @@ def primary_worker(
 ):
     # logger.add(config.log_file, enqueue=True)
     torch.cuda.manual_seed(config.seed)
+    torch.set_default_device("cuda")
 
     make_env_kwargs = (
         dict(
@@ -94,6 +95,7 @@ def primary_worker(
     logger.info("Setting up RL algorithm")
     if config.is_clip_rewarded:
         rl_algorithm_class = get_clip_rewarded_rl_algorithm_class(config.env_name)
+        print(rl_algorithm_class)
         algo = rl_algorithm_class(env=vec_env, config=config)
     else:
         algo = SAC(
@@ -157,12 +159,13 @@ def train(config: str):
     config_obj.save()
 
     # logger.add(config_obj.log_file, enqueue=True)
-
     @logger.catch
     def _train():
         if config_obj.is_clip_rewarded:
             logger.info("Running CLIP-rewarded SAC. Spawning workers.")
             args = ("nccl", config_obj, config_dump)
+            # config_obj.rl.n_workers = 1
+            print(f"Starting with {config_obj.rl.n_workers} workers")
             multiprocessing.spawn(
                 fn=init_process,
                 args=args,
@@ -193,8 +196,10 @@ def init_process(
     # os.environ["NCCL_SHM_DISABLE"] = "1"
     dist.init_process_group(backend, rank=rank, world_size=config.rl.n_workers)
     if rank == 0:
+        print("Launching main")
         primary_worker(config, config_dump, stop_event)
     else:
+        print("Launching worker")
         clip_inference_worker(rank, config, stop_event)
 
 

@@ -2,13 +2,13 @@ base_path: data/runs/training
 description: Mountain Car
 env_name: MountainCarContinuous-v0
 logging:
-  checkpoint_freq: 128000
-  video_freq: 128000
+  checkpoint_freq: 127500
+  video_freq: 127500
 reward:
   alpha: 0.0
   baseline_prompts:
   - a car in the mountain
-  batch_size: 250
+  batch_size: 150 # batch size 150 = 150/30 = 5 seconds 
   # batch_size: 80
   cache_dir: data/cache
   camera_config:
@@ -26,16 +26,16 @@ reward:
   - a car at the peak of the mountain, next to the yellow flag
 rl:
   batch_size: 256
-  episode_length: 500
+  episode_length: 750
   gamma: 0.9999
   gradient_steps: 100
   learning_rate: 0.0001
-  learning_starts: 50000
-  n_envs_per_worker: 8
-  n_steps: 10000
+  learning_starts: 5000
+  n_envs_per_worker: 4
+  n_steps: 100000
   policy_name: MlpPolicy
   tau: 0.01
-  train_freq: 500
+  train_freq: 750
 seed: 42
 tags:
 - clip

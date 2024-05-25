@@ -41,7 +41,6 @@ class CLIPRewardedSAC(SAC):
             // config.rl.episode_length
             // env.num_envs
         ) * env.num_envs
-
         if config.rl.action_noise:
             mean = config.rl.action_noise.mean * np.ones(env.action_space.shape)
             sigma = config.rl.action_noise.sigma * np.ones(env.action_space.shape)
@@ -60,7 +59,6 @@ class CLIPRewardedSAC(SAC):
                 )
         else:
             action_noise = None
-
         super().__init__(
             env=env,
             policy=config.rl.policy_name,
@@ -86,7 +84,6 @@ class CLIPRewardedSAC(SAC):
             **(config.rl.rl_kwargs if config.rl.rl_kwargs else {}),
         )
         self.ep_clip_info_buffer = None  # type: Optional[deque]
-
         self.inference_only = inference_only
         if not self.inference_only:
             self._load_modules()
@@ -96,6 +93,7 @@ class CLIPRewardedSAC(SAC):
                 (config.reward.batch_size // config.rl.n_workers, *config.render_dim),
                 dtype=torch.uint8,
             ).cuda(0)
+        print("initialized clip sac")
 
     def _dump_logs(self) -> None:
         pass
@@ -117,10 +115,12 @@ class CLIPRewardedSAC(SAC):
         total_episodes = self._episode_num - self.previous_num_episodes
         env_episodes = total_episodes // self.env.num_envs
         assert self.config.rl.episode_length == env_episode_timesteps // env_episodes
-
+        print("working on rewards")
         frames = torch.from_numpy(np.array(self.replay_buffer.render_arrays))
+        print("got frames")
         frames = rearrange(frames, "n_steps n_envs ... -> (n_steps n_envs) ...")
         assert frames.shape[1:] == self.config.render_dim
+        print(f"training step: {frames.shape} \n")
         rewards = compute_rewards(
             model=self.reward_model,
             frames=frames,
@@ -161,11 +161,16 @@ class CLIPRewardedSAC(SAC):
             self.ep_clip_info_buffer.extend([rewards_per_episode.tolist()])
 
     def collect_rollouts(self, *args, **kwargs) -> RolloutReturn:
+        print("collecting rollouts")
+        print(args, kwargs)
         rollout = super().collect_rollouts(*args, **kwargs)
+        print("rollouts collected")
         if not self.inference_only:
+            print("computing rewards")
             self._compute_clip_rewards()
             self.previous_num_timesteps = self.num_timesteps
             self.previous_num_episodes = self._episode_num
+            print("rewards computed")
         return rollout
 
     def _log(self) -> None:

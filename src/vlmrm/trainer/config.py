@@ -177,7 +177,7 @@ class RLConfig(BaseModel):
     @computed_field
     @property
     def n_workers(self) -> int:
-        n_workers = torch.cuda.device_count()
+        n_workers = 1
         if n_workers == 0:
             raise RuntimeError("No CUDA device is found.")
         return n_workers

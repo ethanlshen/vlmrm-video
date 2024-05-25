@@ -15,19 +15,28 @@ MMPT_PATH = "/home/ethans/classes/rl/project/fairseq/examples/MMPT"
 class CLIPEmbed(nn.Module):
     def __init__(self, clip_model, video_encoder):
         super().__init__()
-        self.clip_model = clip_model
-        self.video_encoder = video_encoder
-        self.transform = S3D_Weights.KINETICS400_V1.transforms
-
+        self.clip_model = clip_model.cuda()
+        self.video_encoder = video_encoder.cuda()
+        self.transform = S3D_Weights.KINETICS400_V1.transforms()
+        self.target = None
+        self.baseline = None
+        self.max_video_len = 32  # From yaml
+        
     @torch.inference_mode()
-    def forward(self, x, caps, cmasks):
-        if x.shape[1] != 3:
-            x = x.permute(0, 3, 1, 2)
-
+    def forward(self, x):
+        if len(x.shape) == 6:
+            bsz, sec, fps, x_dim, y_dim, rgb_dim = x.shape
+            x = x.reshape(bsz, sec * fps, x_dim, y_dim, rgb_dim)
+            x = x.permute(0, 1, 4, 2, 3)
         with torch.no_grad(), torch.autocast("cuda", enabled=torch.cuda.is_available()):
             x = self.transform(x) # Normalize video
+            x = x.permute(0, 2, 3, 4, 1) # Reverse permutation
+            x = x.reshape(bsz, sec, fps, x.shape[2], x.shape[3], x.shape[4])
             vfeats, vmasks = self.process_video(x)
-            x = self.clip_model.forward_video(vfeats, vmasks, caps, cmasks) # Encode
+            x = self.clip_model.forward_video(vfeats, 
+                                              vmasks, 
+                                              self.target[0], 
+                                              self.target[1]) # Encode
         return x
 
     def process_video(self, video_frames):
@@ -35,12 +44,14 @@ class CLIPEmbed(nn.Module):
         assert bsz == 1, "only bsz=1 is supported now."
         seq_len = video_frames.size(1)
         video_frames = video_frames.view(-1, *video_frames.size()[2:])
-        vfeats = self.video_encoder(video_frames.permute(0, 4, 1, 2, 3))
+        video_frames = video_frames.permute(0, 4, 1, 2, 3).to(torch.float16)
+        video_frames = video_frames.cuda()
+        vfeats = self.video_encoder(video_frames)
         vfeats = vfeats['video_embedding']
         vfeats = vfeats.view(bsz, seq_len, vfeats.size(-1))
         padding = torch.zeros(
             bsz, self.max_video_len - seq_len, vfeats.size(-1))
-        vfeats = torch.cat([vfeats, padding], dim=1)
+        vfeats = torch.cat([vfeats, padding.cuda()], dim=1)
         vmasks = torch.cat([
             torch.ones((bsz, seq_len), dtype=torch.bool),
             torch.zeros((bsz, self.max_video_len - seq_len), dtype=torch.bool)
@@ -79,10 +90,14 @@ class CLIPReward(nn.Module):
         super().__init__()
         self.embed_module = model
         # Embed text. We unpackage prompt to access caps and cmasks.
+        # caps and cmasks
         self.target_prompts = target_prompts
         self.baseline_prompts = baseline_prompts
+        self.embed_module.target = target_prompts
+        self.embed_module.baseline = baseline_prompts
+        # embedding prep
         target = self.embed_prompts(*target_prompts).mean(dim=0, keepdim=True)
-        baseline = self.embed_prompts(*baseline_prompts).mean(dim=0, keepdim=True)        
+        baseline = self.embed_prompts(*baseline_prompts).mean(dim=0, keepdim=True)      
         direction = target - baseline
         # Register them as buffers so they are automatically moved around.
         self.register_buffer("target", target)
@@ -129,17 +144,20 @@ class CLIPReward(nn.Module):
 def load_reward_model(
     model_name, target_prompts, baseline_prompts, alpha, cache_dir: Optional[str] = None
 ):
-    config_path = f"{MMPT_PATH}/projects/retri/videoclip.yaml"
+    config_path = f"{MMPT_PATH}/projects/retri/videoclip/how2.yaml"
     print("config start " + config_path)
     mmpt, tokenizer, aligner = MMPTModel.from_pretrained(config=config_path,
                                                           checkpoint=f"{MMPT_PATH}/runs/retri/videoclip/checkpoint_best.pt")
     # Aligner
+    print("aligning text")
     target_ctext = aligner._build_text_seq(
-        tokenizer(target_prompts, add_special_tokens=False)["input_ids"]
+        tokenizer(target_prompts, add_special_tokens=False)["input_ids"][0]
     )
     baseline_ctext = aligner._build_text_seq(
-        tokenizer(baseline_prompts, add_special_tokens=False)["input_ids"]
+        tokenizer(baseline_prompts, add_special_tokens=False)["input_ids"][0]
     )
+    target_ctext = (target_ctext[0][None, :].cuda(), target_ctext[1][None, :].cuda())
+    baseline_ctext = (baseline_ctext[0][None, :].cuda(), baseline_ctext[1][None, :].cuda())
     # MMPT.model is actual model with text, video encoding. We pass that into CLIPEmbed
     # as clip_model.
     model = CLIPEmbed(mmpt.model, mmpt.video_encoder)
@@ -149,6 +167,7 @@ def load_reward_model(
         target_prompts=target_ctext,
         baseline_prompts=baseline_ctext,
     )
+    print("reward model loaded")
     return model.eval()
 
 
@@ -172,15 +191,21 @@ def compute_rewards(
     assert frames.device == torch.device("cpu")
     assert batch_size % num_workers == 0
     n_samples = len(frames)
+    print(f"frames {frames.shape}")
     rewards = torch.zeros(n_samples, device=torch.device("cpu"))
     model = model.eval()
     with torch.no_grad():
         for i in range(0, n_samples, batch_size):
             frames_batch = frames[i : i + batch_size]
+            # Reshape to 5 second clips
+            _, x_dim, y_dim, rgb_dim = frames_batch.shape
+            frames_batch = frames_batch.reshape(1, 5, 30, x_dim, y_dim, rgb_dim)
+            # Calc reward
+            print(f"Computing reward for batch {i} with shape {frames_batch.shape}")
             rewards_batch = dist_worker_compute_reward(
                 rank=0,
                 reward_model=model,
-                render_dim=frames_batch.shape[1:],
+                render_dim=frames.shape[1:],
                 batch_size=batch_size // num_workers,
                 num_workers=num_workers,
                 frames=frames_batch,
@@ -225,18 +250,25 @@ def dist_worker_compute_reward(
     worker_frames_tensor=None,
 ) -> Optional[torch.Tensor]:
     if rank == 0:
+        t = frames.shape
         if frames is None:
             raise ValueError("Must pass render result on rank=0")
-        if len(frames) != num_workers * batch_size:
+        # if len(frames) != num_workers * batch_size:
+        #     print(num_workers)
+        #     print(batch_size)
+        #     print(len(frames))
+        #     raise ValueError("Must pass render result with correct batch size")
+        if t[0] * t[1] * t[2] != num_workers * batch_size:
             raise ValueError("Must pass render result with correct batch size")
         scatter_list = [t.cuda(rank) for t in torch.chunk(frames, num_workers, dim=0)]
     else:
         scatter_list = []
 
     worker_frames = worker_frames_tensor if worker_frames_tensor is not None else torch.zeros((batch_size, *render_dim), dtype=torch.uint8).cuda(rank)
-    dist.scatter(worker_frames, scatter_list=scatter_list, src=0)
+    # dist.scatter(worker_frames, scatter_list=scatter_list, src=0) 
     with torch.no_grad():
-        embeddings = reward_model.embed_module(worker_frames)
+        
+        embeddings = reward_model.embed_module(frames)
         rewards = reward_model(embeddings)
 
     def zero_t():

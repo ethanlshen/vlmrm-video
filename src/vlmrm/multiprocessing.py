@@ -36,6 +36,7 @@ def _wrap(fn, i, args, error_queue, stop_event):
 def start_processes(
     fn, args=(), nprocs=1, join=True, daemon=False, start_method="spawn"
 ):
+    print("Starting processes")
     mp = multiprocessing.get_context(start_method)
     stop_event = mp.Event()
     error_queues = []
@@ -48,6 +49,7 @@ def start_processes(
             daemon=daemon,
         )
         process.start()
+        print(f"started process {i}")
         error_queues.append(error_queue)
         processes.append(process)
 
@@ -58,6 +60,9 @@ def start_processes(
     # Loop on join until it returns True or raises an exception.
     while not context.join():
         pass
+
+            
+            
 
 
 def spawn(fn, args=(), nprocs=1, join=True, daemon=False, start_method="spawn"):

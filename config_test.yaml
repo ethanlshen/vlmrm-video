@@ -1,5 +1,5 @@
 env_name: Humanoid-v4 # RL environment name
-base_path: /data/runs/training # Base path to save logs and checkpoints
+base_path: data/runs/training # Base path to save logs and checkpoints
 seed: 42 # Seed for reproducibility
 description: Humanoid training using CLIP reward
 tags: # Wandb tags
@@ -14,7 +14,7 @@ reward:
   # so that it can be shared among workers, and must be a divisor
   # of n_envs * episode_length so that all batches can be of the
   # same size (no support for variable batch size as of now.)
-  batch_size: 1600
+  batch_size: 100
   alpha: 0.5 # Alpha value of Baseline CLIP (CO-RELATE)
   target_prompts: # Description of the goal state
     - a humanoid robot kneeling
@@ -23,12 +23,12 @@ reward:
   # Path to pre-saved model weights. When executing multiple runs,
   # mount a volume to this path to avoid downloading the model
   # weights multiple times.
-  cache_dir: /root/.cache
+  cache_dir: data/cache
 rl:
   policy_name: MlpPolicy
   n_steps: 100000 # Total number of simulation steps to be collected.
   n_envs_per_worker: 2 # Number of environments per worker (GPU)
-  episode_length: 200 # Desired episode length
+  episode_length: 100 # Desired episode length
   learning_starts: 100 # Number of env steps to collect before training
   train_freq: 200 # Number of collected env steps between training iterations
   batch_size: 64 # SAC buffer sample size per gradient step
