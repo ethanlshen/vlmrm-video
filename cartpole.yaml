@@ -1,14 +1,14 @@
 base_path: data/runs/training
-description: Mountain Car
-env_name: MountainCarContinuous-v0
+description: Cartpole
+env_name: CartPole-v1
 logging:
   checkpoint_freq: 127800
   video_freq: 127800
 reward:
   alpha: 0.5
   baseline_prompts:
-  - a car moving to the right # a car in the mountain
-  batch_size: 180 # batch size 120 = 120/30 = 4 seconds 
+  - pole and cart
+  batch_size: 120 # batch size 120 = 120/30 = 4 seconds 
   # batch_size: 80
   cache_dir: data/cache
   camera_config:
@@ -23,19 +23,19 @@ reward:
   name: clip
   pretrained_model: ViT-bigG-14/laion2b_s39b_b160k
   target_prompts:
-  - a car driving up to the peak of the mountain, next to the flag
+  - pole vertically upright on top of the cart
 rl:
   batch_size: 256
-  episode_length: 180
+  episode_length: 360
   gamma: 0.9999
   gradient_steps: 1
-  learning_rate: 0.0001
-  learning_starts: 100
+  learning_rate: 0.0023
+  learning_starts: 75000
   n_envs_per_worker: 4
   n_steps: 3000000
   policy_name: MlpPolicy
   tau: 0.01
-  train_freq: 180
+  train_freq: 360
 seed: 42
 tags:
 - clip

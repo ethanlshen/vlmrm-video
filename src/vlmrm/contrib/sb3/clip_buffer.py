@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Union
-
+import numpy as np
 import torch as th
 from gymnasium import spaces
 from numpy.typing import NDArray
@@ -27,6 +27,7 @@ class CLIPReplayBuffer(ReplayBuffer):
             handle_timeout_termination,
         )
         self.render_arrays: List[NDArray] = []
+        self.sequential = None
 
     def add(
         self,
@@ -47,7 +48,16 @@ class CLIPReplayBuffer(ReplayBuffer):
         )
 
         assert len(self.render_arrays) < self.buffer_size
-        self.render_arrays.append(infos[0]["render_array"])
+        rd_array = infos[0]["render_array"]  # 4, 400, 600, 3
+        if self.sequential is None:
+            self.sequential = rd_array
+        else:
+            self.sequential = np.concatenate((self.sequential, rd_array), axis=0)
+        if self.sequential.shape[0] == 180:
+            self.render_arrays.append(self.sequential)
+            # print(self.sequential.shape)
+            self.sequential = None
 
     def clear_render_arrays(self) -> None:
         self.render_arrays = []
+        self.sequential = None

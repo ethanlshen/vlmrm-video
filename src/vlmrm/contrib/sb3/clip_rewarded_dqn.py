@@ -17,7 +17,8 @@ from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.vec_env.patch_gym import _convert_space
 
 from vlmrm.contrib.sb3.clip_buffer import CLIPReplayBuffer
-from vlmrm.reward_model import compute_rewards, load_reward_model_from_config
+# from vlmrm.reward_model import compute_rewards, load_reward_model_from_config
+from vlmrm.video_reward import compute_rewards, load_reward_model_from_config
 from vlmrm.trainer.config import CLIPRewardConfig, Config
 
 SelfCLIPRewardedDQN = TypeVar("SelfCLIPRewardedDQN", bound="CLIPRewardedDQN")

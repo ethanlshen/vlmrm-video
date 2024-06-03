@@ -10,7 +10,7 @@ logs/
 videos/
 # C extensions
 *.so
-
+frames*
 # Distribution / packaging
 .Python
 build/

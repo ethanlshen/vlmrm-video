@@ -15,9 +15,9 @@ MMPT_PATH = "/home/ethans/classes/rl/project/fairseq/examples/MMPT"
 class CLIPEmbed(nn.Module):
     def __init__(self, clip_model, video_encoder):
         super().__init__()
-        self.clip_model = clip_model.cuda()
-        self.video_encoder = video_encoder.cuda()
-        self.transform = S3D_Weights.KINETICS400_V1.transforms()
+        self.clip_model = clip_model.cuda().eval()
+        self.video_encoder = video_encoder.cuda().eval()
+        self.transform = S3D_Weights.KINETICS400_V1.transforms(resize_size=(224, 224))
         self.target = None
         self.baseline = None
         self.max_video_len = 32  # From yaml
@@ -31,6 +31,8 @@ class CLIPEmbed(nn.Module):
         with torch.no_grad(), torch.autocast("cuda", enabled=torch.cuda.is_available()):
             x = self.transform(x) # Normalize video
             x = x.permute(0, 2, 3, 4, 1) # Reverse permutation
+            # torch.save(x.reshape(-1, 224, 224, 3), "frames_post.pt")
+            # torch.save(255 * x.reshape(-1, 224, 224, 3), "frames_post_255.pt")
             x = x.reshape(bsz, sec, fps, x.shape[2], x.shape[3], x.shape[4])
             vfeats, vmasks = self.process_video(x)
             x = self.clip_model.forward_video(vfeats, 
@@ -199,7 +201,9 @@ def compute_rewards(
             frames_batch = frames[i : i + batch_size]
             # Reshape to 5 second clips
             _, x_dim, y_dim, rgb_dim = frames_batch.shape
-            frames_batch = frames_batch.reshape(1, 5, 30, x_dim, y_dim, rgb_dim)
+            # print(frames_batch)
+            # torch.save(frames_batch, "frames.pt")
+            frames_batch = frames_batch.reshape(1, 6, 30, x_dim, y_dim, rgb_dim)
             # Calc reward
             print(f"Computing reward for batch {i} with shape {frames_batch.shape}")
             rewards_batch = dist_worker_compute_reward(
